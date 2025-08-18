@@ -1,0 +1,8 @@
+[package]
+name = "chip8-emulator-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sdl3 = { version = "0", features = [] }
+sdl3-ttf-sys = { version = "0", features = [] }
