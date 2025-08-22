@@ -1,3 +1,4 @@
+use std::error::Error;
 use clap::Parser;
 
 mod emulator;
@@ -15,11 +16,8 @@ struct Args {
     debug: bool,
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-
-    println!("{:?}", args);
-
-    emulator::Chip8::new()
-        .run();
+    emulator::Chip8::new(args.rom.as_str(), args.debug)?.run();
+    Ok(())
 }

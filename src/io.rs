@@ -1,19 +1,19 @@
 extern crate sdl3;
 
-use sdl3::pixels::Color;
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
+use sdl3::pixels::Color;
 use std::time::Duration;
 
-pub struct IO {
-}
+pub struct IO {}
 
 impl IO {
     pub fn new() -> Self {
         let sdl_context = sdl3::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
-        let window = video_subsystem.window("chip8-emulator-rs", 800, 600)
+        let window = video_subsystem
+            .window("chip8-emulator-rs", 800, 600)
             .position_centered()
             .build()
             .unwrap();
@@ -31,10 +31,11 @@ impl IO {
             canvas.clear();
             for event in event_pump.poll_iter() {
                 match event {
-                    Event::Quit {..} |
-                    Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
-                        break 'running
-                    },
+                    Event::Quit { .. } |
+                    Event::KeyDown {
+                        keycode: Some(Keycode::Escape),
+                        ..
+                    } => break 'running,
                     _ => {}
                 }
             }
