@@ -80,7 +80,7 @@ impl Chip8 {
             i: 0x0,
             acc: 0,
             current_instruction: 0x0000,
-            io: io::IO::new(),
+            io: io::IO::new()?,
         })
     }
 
