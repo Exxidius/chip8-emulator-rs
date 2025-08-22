@@ -1,3 +1,4 @@
+use std::thread;
 use std::fs;
 use std::error::Error;
 use crate::io;
@@ -43,6 +44,7 @@ pub struct Chip8 {
     running: bool,
     paused: bool,
     step_mode: bool,
+    should_step: bool,
     debug_mode: bool,
 
     rom_file_name: String,
@@ -52,7 +54,6 @@ pub struct Chip8 {
 impl Chip8 {
     pub fn new(rom: &str, debug: bool) -> Result<Self, Box<dyn Error>> {
         let mut memory = [0; MEMORY_SIZE];
-
         memory[FONT_OFFSET..FONT_OFFSET + FONT.len()]
             .copy_from_slice(&FONT);
 
@@ -65,7 +66,7 @@ impl Chip8 {
         memory[PROGRAM_START..PROGRAM_START + rom_data.len()]
             .copy_from_slice(&rom_data);
 
-        Ok(Chip8 {
+        Ok(Self {
             display: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
             memory,
             regs: [0; NUMBER_REGS],
@@ -75,6 +76,7 @@ impl Chip8 {
             debug_mode: debug,
             paused: if debug { true } else { false },
             step_mode: false,
+            should_step: false,
             rom_file_name: String::from(rom),
             pc: 0x200,
             i: 0x0,
@@ -84,5 +86,61 @@ impl Chip8 {
         })
     }
 
-    pub fn run(&mut self) {}
+    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        while self.running {
+            if !self.paused && (!self.step_mode || self.should_step) {
+                self.handle_timer();
+                self.fetch();
+            }
+
+            self.decode_execute()?;
+
+            // TODO: include the instruction timing
+            thread::sleep(std::time::Duration::from_millis(16));
+
+            if self.step_mode {
+                self.should_step = false;
+            }
+
+            // TODO: implement IO polling
+        }
+        Ok(())
+    }
+
+    fn draw(&mut self) -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
+
+    fn reset(&mut self) -> Result<(), Box<dyn Error>> {
+        self.display = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+        self.regs = [0; NUMBER_REGS];
+
+        self.pc = 0x200;
+        self.i = 0x0;
+        self.acc = 0;
+        self.current_instruction = 0x0000;
+
+        self.delay_timer = 0;
+        self.sound_timer = 0;
+
+        self.running = true;
+        self.paused = if self.debug_mode { true } else { false };
+        self.step_mode = false;
+        self.should_step = false;
+
+        self.draw()?;
+        Ok(())
+    }
+
+    fn fetch(&mut self) {
+
+    }
+
+    fn decode_execute(&mut self) -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
+
+    fn handle_timer(&mut self) {
+
+    }
 }

@@ -18,6 +18,6 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    emulator::Chip8::new(args.rom.as_str(), args.debug)?.run();
+    emulator::Chip8::new(args.rom.as_str(), args.debug)?.run()?;
     Ok(())
 }
