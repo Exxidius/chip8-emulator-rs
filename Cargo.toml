@@ -1,5 +1,6 @@
 [package]
 name = "chip8-emulator-rs"
+description = "A simple to use chip8 emulator written in rust"
 version = "0.1.0"
 edition = "2021"
 

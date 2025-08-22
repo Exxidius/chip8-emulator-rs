@@ -8,8 +8,7 @@ impl Chip8 {
         Chip8 {}
     }
 
-    // Use run as loop is reserved (and i dont want to escape)
-    pub fn run() -> () {
+    pub fn run(&mut self) -> () {
         ()
     }
 }

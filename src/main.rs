@@ -6,9 +6,11 @@ mod io;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
+    /// Rom file to emulate
+    #[arg(short, long, value_name = "ROM-FILE")]
     rom: String,
 
+    /// Enables debug mode
     #[arg(short, long, default_value_t = false)]
     debug: bool,
 }
@@ -18,5 +20,6 @@ fn main() {
 
     println!("{:?}", args);
 
-    let _emu = emulator::Chip8::new();
+    emulator::Chip8::new()
+        .run();
 }
