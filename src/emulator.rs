@@ -1,15 +1,23 @@
 use std::thread;
 use std::fs;
-use std::error::Error;
+
 use crate::io;
+use crate::error::Chip8Error;
+
+type Memory = [u8; MEMORY_SIZE];
+type Display = [u8; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+type Regs = [u8; NUMBER_REGS];
+type Stack = Vec<u16>;
 
 const DISPLAY_WIDTH: usize = 64;
 const DISPLAY_HEIGHT: usize = 32;
 const NUMBER_REGS: usize = 16;
-
+const STACK_SIZE: usize = 16;
 const MEMORY_SIZE: usize = 4096;
 const FONT_OFFSET: usize = 0x050;
 const PROGRAM_START: usize = 0x200;
+const INSTRUCTION_FREQ: u64 = 1000;
+
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -29,10 +37,12 @@ const FONT: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 ];
 
+#[derive(Clone)]
 pub struct Chip8 {
-    display: [u8; DISPLAY_WIDTH * DISPLAY_HEIGHT],
-    memory: [u8; MEMORY_SIZE],
-    regs: [u8; NUMBER_REGS],
+    display: Display,
+    memory: Memory,
+    regs: Regs,
+    stack: Stack,
     pc: u16,
     i: u16,
     current_instruction: u16,
@@ -52,7 +62,7 @@ pub struct Chip8 {
 }
 
 impl Chip8 {
-    pub fn new(rom: &str, debug: bool) -> Result<Self, Box<dyn Error>> {
+    pub fn new(rom: &str, debug: bool) -> Result<Self, Chip8Error> {
         let mut memory = [0; MEMORY_SIZE];
         memory[FONT_OFFSET..FONT_OFFSET + FONT.len()]
             .copy_from_slice(&FONT);
@@ -60,7 +70,7 @@ impl Chip8 {
         let rom_data = fs::read(rom)?;
 
         if (rom_data.len() + PROGRAM_START) > MEMORY_SIZE {
-            return Err("Rom is too large to fit in chip8 memory".into());
+            return Err(Chip8Error::RomTooLarge(rom_data.len()));
         }
 
         memory[PROGRAM_START..PROGRAM_START + rom_data.len()]
@@ -70,6 +80,7 @@ impl Chip8 {
             display: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
             memory,
             regs: [0; NUMBER_REGS],
+            stack: Vec::with_capacity(STACK_SIZE),
             delay_timer: 0,
             sound_timer: 0,
             running: true,
@@ -82,11 +93,11 @@ impl Chip8 {
             i: 0x0,
             acc: 0,
             current_instruction: 0x0000,
-            io: io::IO::new()?,
+            io: io::IO::new(DISPLAY_WIDTH, DISPLAY_HEIGHT)?,
         })
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn run(&mut self) -> Result<(), Chip8Error> {
         while self.running {
             if !self.paused && (!self.step_mode || self.should_step) {
                 self.handle_timer();
@@ -96,7 +107,7 @@ impl Chip8 {
             self.decode_execute()?;
 
             // TODO: include the instruction timing
-            thread::sleep(std::time::Duration::from_millis(16));
+            thread::sleep(std::time::Duration::from_secs_f64(1 as f64 / INSTRUCTION_FREQ as f64));
 
             if self.step_mode {
                 self.should_step = false;
@@ -107,11 +118,11 @@ impl Chip8 {
         Ok(())
     }
 
-    fn draw(&mut self) -> Result<(), Box<dyn Error>> {
+    fn draw(&mut self) -> Result<(), Chip8Error> {
         Ok(())
     }
 
-    fn reset(&mut self) -> Result<(), Box<dyn Error>> {
+    fn reset(&mut self) -> Result<(), Chip8Error> {
         self.display = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
         self.regs = [0; NUMBER_REGS];
 
@@ -136,11 +147,23 @@ impl Chip8 {
 
     }
 
-    fn decode_execute(&mut self) -> Result<(), Box<dyn Error>> {
+    fn decode_execute(&mut self) -> Result<(), Chip8Error> {
         Ok(())
     }
 
     fn handle_timer(&mut self) {
 
+    }
+
+    fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
+        if self.stack.len()>= STACK_SIZE {
+            return Err(Chip8Error::StackOverflow);
+        }
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn stack_pop(&mut self) -> Result<u16, Chip8Error> {
+        self.stack.pop().ok_or(Chip8Error::StackUnderflow)
     }
 }

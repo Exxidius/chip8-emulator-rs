@@ -1,20 +1,35 @@
 extern crate sdl3;
 
-use std::error::Error;
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
 use sdl3::pixels::Color;
 use std::time::Duration;
 
-pub struct IO {}
+use crate::error::Chip8Error;
+
+const SCALING: u32 = 8;
+
+#[derive(Clone)]
+pub struct IO {
+    context: sdl3::Sdl,
+
+    keys_pressed: [u8; 16],
+    key_pressed: i32,
+    key_released: i32,
+
+    width: u32,
+    height: u32,
+    debug_width: u32,
+    debug_height: u32,
+}
 
 impl IO {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub fn new(width: usize, height: usize) -> Result<Self, Chip8Error> {
         let sdl_context = sdl3::init()?;
         let video_subsystem = sdl_context.video()?;
 
         let window = video_subsystem
-            .window("chip8-emulator-rs", 800, 600)
+            .window("chip8-emulator-rs", width as u32 * SCALING, height as u32 * SCALING)
             .position_centered()
             .build()?;
 
@@ -44,6 +59,15 @@ impl IO {
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
 
-        Ok(IO {})
+        Ok(IO {
+            context: sdl_context,
+            keys_pressed: [0; 16],
+            key_pressed: -1,
+            key_released: -1,
+            width: width as u32,
+            height: height as u32,
+            debug_width: 0,
+            debug_height: 0,
+        })
     }
 }
