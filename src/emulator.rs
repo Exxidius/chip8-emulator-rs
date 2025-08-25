@@ -1,8 +1,8 @@
-use std::thread;
 use std::fs;
+use std::thread;
 
-use crate::io;
 use crate::error::Chip8Error;
+use crate::io;
 
 type Memory = [u8; MEMORY_SIZE];
 type Display = [u8; DISPLAY_WIDTH * DISPLAY_HEIGHT];
@@ -17,6 +17,13 @@ const MEMORY_SIZE: usize = 4096;
 const FONT_OFFSET: usize = 0x050;
 const PROGRAM_START: usize = 0x200;
 const INSTRUCTION_FREQ: u64 = 1000;
+
+pub const PAUSE: u32 = 0x02;
+pub const STEP_MODE: u32 = 0x04;
+pub const SHOULD_STEP: u32 = 0x08;
+pub const RESET: u32 = 0x10;
+pub const QUIT: u32 = 0x20;
+pub const NO_KEY_PRESSED: i32 = -2;
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -34,10 +41,9 @@ const FONT: [u8; 80] = [
     0xF0, 0x80, 0x80, 0x80, 0xF0, // C
     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-#[derive(Clone)]
 pub struct Chip8 {
     display: Display,
     memory: Memory,
@@ -57,24 +63,19 @@ pub struct Chip8 {
     should_step: bool,
     debug_mode: bool,
 
-    rom_file_name: String,
     io: io::IO,
 }
 
 impl Chip8 {
     pub fn new(rom: &str, debug: bool) -> Result<Self, Chip8Error> {
         let mut memory = [0; MEMORY_SIZE];
-        memory[FONT_OFFSET..FONT_OFFSET + FONT.len()]
-            .copy_from_slice(&FONT);
+        memory[FONT_OFFSET..FONT_OFFSET + FONT.len()].copy_from_slice(&FONT);
 
-        let rom_data = fs::read(rom)?;
-
-        if (rom_data.len() + PROGRAM_START) > MEMORY_SIZE {
-            return Err(Chip8Error::RomTooLarge(rom_data.len()));
+        let data = fs::read(rom)?;
+        if (data.len() + PROGRAM_START) > MEMORY_SIZE {
+            return Err(Chip8Error::RomTooLarge(data.len()));
         }
-
-        memory[PROGRAM_START..PROGRAM_START + rom_data.len()]
-            .copy_from_slice(&rom_data);
+        memory[PROGRAM_START..PROGRAM_START + data.len()].copy_from_slice(&data);
 
         Ok(Self {
             display: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
@@ -85,10 +86,9 @@ impl Chip8 {
             sound_timer: 0,
             running: true,
             debug_mode: debug,
-            paused: if debug { true } else { false },
+            paused: debug,
             step_mode: false,
             should_step: false,
-            rom_file_name: String::from(rom),
             pc: 0x200,
             i: 0x0,
             acc: 0,
@@ -106,20 +106,46 @@ impl Chip8 {
 
             self.decode_execute()?;
 
-            // TODO: include the instruction timing
-            thread::sleep(std::time::Duration::from_secs_f64(1 as f64 / INSTRUCTION_FREQ as f64));
+            thread::sleep(std::time::Duration::from_secs_f64(
+                1_f64 / INSTRUCTION_FREQ as f64,
+            ));
 
-            if self.step_mode {
+            if self.step_mode && self.should_step {
+                self.draw()?;
                 self.should_step = false;
             }
 
-            // TODO: implement IO polling
+            let result = self.io.poll()?;
+
+            if result == QUIT {
+                self.running = false;
+                continue;
+            }
+
+            if result & PAUSE != 0 && self.debug_mode {
+                self.paused = !self.paused;
+                self.draw()?;
+            }
+
+            if result & STEP_MODE != 0 && self.debug_mode {
+                self.step_mode = !self.step_mode;
+                self.draw()?;
+            }
+
+            if result & SHOULD_STEP != 0 {
+                self.should_step = true;
+            }
+
+            if result & RESET != 0 {
+                self.reset()?;
+            }
         }
         Ok(())
     }
 
     fn draw(&mut self) -> Result<(), Chip8Error> {
-        Ok(())
+        println!("Drawing display");
+        self.io.draw(&mut self.display)
     }
 
     fn reset(&mut self) -> Result<(), Chip8Error> {
@@ -135,7 +161,7 @@ impl Chip8 {
         self.sound_timer = 0;
 
         self.running = true;
-        self.paused = if self.debug_mode { true } else { false };
+        self.paused = self.debug_mode;
         self.step_mode = false;
         self.should_step = false;
 
@@ -143,20 +169,16 @@ impl Chip8 {
         Ok(())
     }
 
-    fn fetch(&mut self) {
-
-    }
+    fn fetch(&mut self) {}
 
     fn decode_execute(&mut self) -> Result<(), Chip8Error> {
         Ok(())
     }
 
-    fn handle_timer(&mut self) {
-
-    }
+    fn handle_timer(&mut self) {}
 
     fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
-        if self.stack.len()>= STACK_SIZE {
+        if self.stack.len() >= STACK_SIZE {
             return Err(Chip8Error::StackOverflow);
         }
         self.stack.push(value);

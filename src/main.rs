@@ -1,8 +1,8 @@
 use clap::Parser;
 
 mod emulator;
-mod io;
 mod error;
+mod io;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

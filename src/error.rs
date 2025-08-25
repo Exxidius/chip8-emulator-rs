@@ -20,13 +20,13 @@ impl From<std::io::Error> for Chip8Error {
 
 impl From<sdl3::Error> for Chip8Error {
     fn from(err: sdl3::Error) -> Self {
-        Chip8Error::IoError(std::io::Error::new(std::io::ErrorKind::Other, err))
+        Chip8Error::IoError(std::io::Error::other(err))
     }
 }
 
 impl From<WindowBuildError> for Chip8Error {
     fn from(err: WindowBuildError) -> Self {
-        Chip8Error::IoError(std::io::Error::new(std::io::ErrorKind::Other, err))
+        Chip8Error::IoError(std::io::Error::other(err))
     }
 }
 
