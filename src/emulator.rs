@@ -106,9 +106,7 @@ impl Chip8 {
 
             self.decode_execute()?;
 
-            thread::sleep(std::time::Duration::from_secs_f64(
-                1_f64 / INSTRUCTION_FREQ as f64,
-            ));
+            thread::sleep(std::time::Duration::from_secs_f64(1_f64 / INSTRUCTION_FREQ as f64));
 
             if self.step_mode && self.should_step {
                 self.draw()?;
@@ -169,13 +167,52 @@ impl Chip8 {
         Ok(())
     }
 
-    fn fetch(&mut self) {}
+    fn fetch(&mut self) {
+        let high_byte = self.memory[self.pc as usize] as u16;
+        let low_byte = self.memory[(self.pc + 1) as usize] as u16;
+
+        self.current_instruction = (high_byte << 8) | low_byte;
+        self.pc += 2;
+    }
 
     fn decode_execute(&mut self) -> Result<(), Chip8Error> {
+        // let opcode = self.decode()?;
+        // self.execute()
         Ok(())
     }
 
-    fn handle_timer(&mut self) {}
+    fn decode(&self) -> Result<(), Chip8Error> {
+        let first_nibble = (self.current_instruction & 0xF000) >> 12;
+        let x = ((self.current_instruction & 0x0F00) >> 8) as usize;
+        let y = ((self.current_instruction & 0x00F0) >> 4) as usize;
+        let n = (self.current_instruction & 0x000F) as u8;
+        let nn = (self.current_instruction & 0x00FF) as u8;
+        let nnn = self.current_instruction & 0x0FFF;
+
+        Ok(())
+    }
+
+    fn execute(&mut self) -> Result<(), Chip8Error> {
+        // ToDo: implement opcode struct and match on it
+        Ok(())
+    }
+    
+
+    fn handle_timer(&mut self) {
+        if self.timer_60Hz() {
+            if self.delay_timer > 0 {
+                self.delay_timer -= 1;
+            }
+            if self.sound_timer > 0 {
+                self.sound_timer -= 1;
+            }
+        }
+    }
+
+    fn timer_60Hz(&self) -> bool {
+        let now = std::time::Instant::now();
+        now.elapsed().as_millis() % (1000 / 60) == 0
+    }
 
     fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
         if self.stack.len() >= STACK_SIZE {
