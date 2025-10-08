@@ -7,6 +7,7 @@ pub enum Chip8Error {
     InvalidOpcode(u16),
     StackOverflow,
     StackUnderflow,
+    PCOutOfBounds(u16),
     IoError(std::io::Error),
 }
 
@@ -35,6 +36,9 @@ impl std::fmt::Display for Chip8Error {
         match self {
             Chip8Error::RomTooLarge(size) => {
                 write!(f, "ROM is too large to fit in memory (size: {})", size)
+            }
+            Chip8Error::PCOutOfBounds(pc) => {
+                write!(f, "Program Counter is out of bounds (PC: {:#X})", pc)
             }
             Chip8Error::RomNotFound(name) => write!(f, "ROM file not found: {}", name),
             Chip8Error::InvalidOpcode(opcode) => write!(f, "Invalid opcode: {:#X}", opcode),

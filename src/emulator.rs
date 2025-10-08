@@ -101,12 +101,19 @@ impl Chip8 {
         while self.running {
             if !self.paused && (!self.step_mode || self.should_step) {
                 self.handle_timer();
+
+                if self.pc as usize >= MEMORY_SIZE - 1 {
+                    return Err(Chip8Error::PCOutOfBounds(self.pc));
+                }
+
                 self.fetch();
             }
 
             self.decode_execute()?;
 
-            thread::sleep(std::time::Duration::from_secs_f64(1_f64 / INSTRUCTION_FREQ as f64));
+            thread::sleep(std::time::Duration::from_secs_f64(
+                1_f64 / INSTRUCTION_FREQ as f64,
+            ));
 
             if self.step_mode && self.should_step {
                 self.draw()?;
@@ -176,30 +183,124 @@ impl Chip8 {
     }
 
     fn decode_execute(&mut self) -> Result<(), Chip8Error> {
-        // let opcode = self.decode()?;
-        // self.execute()
+        let opcode = self.decode()?;
+        self.execute(opcode)?;
         Ok(())
     }
 
-    fn decode(&self) -> Result<(), Chip8Error> {
+    fn decode(&self) -> Result<Opcode, Chip8Error> {
         let first_nibble = (self.current_instruction & 0xF000) >> 12;
-        let x = ((self.current_instruction & 0x0F00) >> 8) as usize;
-        let y = ((self.current_instruction & 0x00F0) >> 4) as usize;
+        let x = ((self.current_instruction & 0x0F00) >> 8) as u8;
+        let y = ((self.current_instruction & 0x00F0) >> 4) as u8;
         let n = (self.current_instruction & 0x000F) as u8;
         let nn = (self.current_instruction & 0x00FF) as u8;
         let nnn = self.current_instruction & 0x0FFF;
 
-        Ok(())
+        match (first_nibble, x, y, n) {
+            (0x0, 0x0, 0xE, 0x0) => Ok(Opcode::Clear),
+            (0x0, 0x0, 0xE, 0xE) => Ok(Opcode::Return),
+            (0x1, _, _, _) => Ok(Opcode::Jump(nnn)),
+            (0x2, _, _, _) => Ok(Opcode::Call(nnn)),
+            (0x3, _, _, _) => Ok(Opcode::SkipEqualVal(x, nn)),
+            (0x4, _, _, _) => Ok(Opcode::SkipNotEqualVal(x, nn)),
+            (0x5, _, _, 0x0) => Ok(Opcode::SkipEqual(x, y)),
+            (0x6, _, _, _) => Ok(Opcode::SetVal(x, nn)),
+            (0x7, _, _, _) => Ok(Opcode::AddVal(x, nn)),
+            (0x8, _, _, 0x0) => Ok(Opcode::Set(x, y)),
+            (0x8, _, _, 0x1) => Ok(Opcode::Or(x, y)),
+            (0x8, _, _, 0x2) => Ok(Opcode::And(x, y)),
+            (0x8, _, _, 0x3) => Ok(Opcode::Xor(x, y)),
+            (0x8, _, _, 0x4) => Ok(Opcode::Add(x, y)),
+            (0x8, _, _, 0x5) => Ok(Opcode::Sub(x, y)),
+            (0x8, _, _, 0x6) => Ok(Opcode::ShiftRight(x)),
+            (0x8, _, _, 0x7) => Ok(Opcode::SubN(x, y)),
+            (0x8, _, _, 0xE) => Ok(Opcode::ShiftLeft(x)),
+            (0x9, _, _, 0x0) => Ok(Opcode::SkipNotEqual(x, y)),
+            (0xA, _, _, _) => Ok(Opcode::SetI(nnn)),
+            (0xB, _, _, _) => Ok(Opcode::JumpV0(nnn)),
+            (0xC, _, _, _) => Ok(Opcode::Random(x, nn)),
+            (0xD, _, _, _) => Ok(Opcode::Draw(x, y, n)),
+            (0xE, _, 0x9, 0xE) => Ok(Opcode::SkipKey(x)),
+            (0xE, _, 0xA, 0x1) => Ok(Opcode::SkipNotKey(x)),
+            (0xF, _, 0x0, 0x7) => Ok(Opcode::GetDelay(x)),
+            (0xF, _, 0x0, 0xA) => Ok(Opcode::WaitKey(x)),
+            (0xF, _, 0x1, 0x5) => Ok(Opcode::SetDelay(x)),
+            (0xF, _, 0x1, 0x8) => Ok(Opcode::SetSound(x)),
+            (0xF, _, 0x1, 0xE) => Ok(Opcode::AddI(x)),
+            (0xF, _, 0x2, 0x9) => Ok(Opcode::SetSprite(x)),
+            (0xF, _, 0x3, 0x3) => Ok(Opcode::StoreBCD(x)),
+            (0xF, _, 0x5, 0x5) => Ok(Opcode::StoreRegs(x)),
+            (0xF, _, 0x6, 0x5) => Ok(Opcode::LoadRegs(x)),
+            _ => Err(Chip8Error::InvalidOpcode(self.current_instruction)),
+        }
     }
 
-    fn execute(&mut self) -> Result<(), Chip8Error> {
-        // ToDo: implement opcode struct and match on it
-        Ok(())
+    fn execute(&mut self, opcode: Opcode) -> Result<(), Chip8Error> {
+        match opcode {
+            Opcode::Clear => {
+                self.display = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+                self.io.draw(&mut self.display)?;
+                Ok(())
+            }
+            Opcode::Jump(addr) => {
+                self.pc = addr;
+                Ok(())
+            }
+            Opcode::SetVal(x, nn) => {
+                self.regs[x as usize] = nn;
+                Ok(())
+            }
+            Opcode::AddVal(x, nn) => {
+                let (result, overflow) = self.regs[x as usize].overflowing_add(nn);
+                self.regs[x as usize] = result;
+                self.regs[0xF] = overflow as u8;
+                Ok(())
+            }
+            Opcode::SetI(addr) => {
+                self.i = addr;
+                Ok(())
+            }
+            Opcode::Draw(x, y, n) => {
+                let vx = self.regs[x as usize] as usize % DISPLAY_WIDTH;
+                let vy = self.regs[y as usize] as usize % DISPLAY_HEIGHT;
+
+                self.regs[0xF] = 0;
+
+                for byte_index in 0..n as usize {
+                    let byte = self.memory[self.i as usize + byte_index];
+                    for bit_index in (0..8).rev() {
+                        let bit = (byte >> bit_index) & 1;
+                        let screen_x = (vx + (7 - bit_index)) % DISPLAY_WIDTH;
+                        let screen_y = (vy + byte_index) % DISPLAY_HEIGHT;
+                        let screen_offset = screen_y * DISPLAY_WIDTH + screen_x;
+
+                        if bit == 1 && self.display[screen_offset] == 1 {
+                            self.regs[0xF] = 1;
+                        }
+
+                        self.display[screen_offset] ^= bit;
+
+                        if screen_x == DISPLAY_WIDTH - 1 {
+                            break;
+                        }
+                    }
+
+                    if vy + byte_index == DISPLAY_HEIGHT - 1 {
+                        break;
+                    }
+                }
+                self.io.draw(&mut self.display)?;
+                Ok(())
+            }
+            _ => {
+                println!("Opcode {:?} not implemented yet", opcode);
+                Ok(())
+            }
+        }
     }
-    
 
     fn handle_timer(&mut self) {
-        if self.timer_60Hz() {
+        if self.timer_60_hz() {
             if self.delay_timer > 0 {
                 self.delay_timer -= 1;
             }
@@ -209,7 +310,7 @@ impl Chip8 {
         }
     }
 
-    fn timer_60Hz(&self) -> bool {
+    fn timer_60_hz(&mut self) -> bool {
         let now = std::time::Instant::now();
         now.elapsed().as_millis() % (1000 / 60) == 0
     }
@@ -225,4 +326,42 @@ impl Chip8 {
     fn stack_pop(&mut self) -> Result<u16, Chip8Error> {
         self.stack.pop().ok_or(Chip8Error::StackUnderflow)
     }
+}
+
+#[derive(Debug)]
+enum Opcode {
+    Clear,                   // 00E0
+    Return,                  // 00EE
+    Jump(u16),               // 1NNN
+    Call(u16),               // 2NNN
+    SkipEqualVal(u8, u8),    // 3XNN
+    SkipNotEqualVal(u8, u8), // 4XNN
+    SkipEqual(u8, u8),       // 5XY0
+    SetVal(u8, u8),          // 6XNN
+    AddVal(u8, u8),          // 7XNN
+    Set(u8, u8),             // 8XY0
+    Or(u8, u8),              // 8XY1
+    And(u8, u8),             // 8XY2
+    Xor(u8, u8),             // 8XY3
+    Add(u8, u8),             // 8XY4
+    Sub(u8, u8),             // 8XY5
+    ShiftRight(u8),          // 8XY6
+    SubN(u8, u8),            // 8XY7
+    ShiftLeft(u8),           // 8XYE
+    SkipNotEqual(u8, u8),    // 9XY0
+    SetI(u16),               // ANNN
+    JumpV0(u16),             // BNNN
+    Random(u8, u8),          // CXNN
+    Draw(u8, u8, u8),        // DXYN
+    SkipKey(u8),             // EX9E
+    SkipNotKey(u8),          // EXA1
+    GetDelay(u8),            // FX07
+    WaitKey(u8),             // FX0A
+    SetDelay(u8),            // FX15
+    SetSound(u8),            // FX18
+    AddI(u8),                // FX1E
+    SetSprite(u8),           // FX29
+    StoreBCD(u8),            // FX33
+    StoreRegs(u8),           // FX55
+    LoadRegs(u8),            // FX65
 }
