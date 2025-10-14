@@ -211,9 +211,9 @@ impl Chip8 {
             (0x8, _, _, 0x2) => Ok(Opcode::And(x, y)),
             (0x8, _, _, 0x3) => Ok(Opcode::Xor(x, y)),
             (0x8, _, _, 0x4) => Ok(Opcode::Add(x, y)),
-            (0x8, _, _, 0x5) => Ok(Opcode::Sub(x, y)),
+            (0x8, _, _, 0x5) => Ok(Opcode::SubY(x, y)),
             (0x8, _, _, 0x6) => Ok(Opcode::ShiftRight(x)),
-            (0x8, _, _, 0x7) => Ok(Opcode::SubN(x, y)),
+            (0x8, _, _, 0x7) => Ok(Opcode::SubX(x, y)),
             (0x8, _, _, 0xE) => Ok(Opcode::ShiftLeft(x)),
             (0x9, _, _, 0x0) => Ok(Opcode::SkipNotEqual(x, y)),
             (0xA, _, _, _) => Ok(Opcode::SetI(nnn)),
@@ -242,8 +242,35 @@ impl Chip8 {
                 self.io.draw(&mut self.display)?;
                 Ok(())
             }
+            Opcode::Return => {
+                self.pc = self.stack_pop()?;
+                Ok(())
+            }
             Opcode::Jump(addr) => {
                 self.pc = addr;
+                Ok(())
+            }
+            Opcode::Call(addr) => {
+                self.stack_push(self.pc)?;
+                self.pc = addr;
+                Ok(())
+            }
+            Opcode::SkipEqualVal(x, nn) => {
+                if self.regs[x as usize] == nn {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
+            Opcode::SkipNotEqualVal(x, nn) => {
+                if self.regs[x as usize] != nn {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
+            Opcode::SkipEqual(x, y) => {
+                if self.regs[x as usize] == self.regs[y as usize] {
+                    self.pc += 2;
+                }
                 Ok(())
             }
             Opcode::SetVal(x, nn) => {
@@ -256,6 +283,59 @@ impl Chip8 {
                 self.regs[0xF] = overflow as u8;
                 Ok(())
             }
+            Opcode::Set(x, y) => {
+                self.regs[x as usize] = self.regs[y as usize];
+                Ok(())
+            }
+            Opcode::Or(x, y) => {
+                self.regs[x as usize] |= self.regs[y as usize];
+                Ok(())
+            }
+            Opcode::And(x, y) => {
+                self.regs[x as usize] &= self.regs[y as usize];
+                Ok(())
+            }
+            Opcode::Xor(x, y) => {
+                self.regs[x as usize] ^= self.regs[y as usize];
+                Ok(())
+            }
+            Opcode::Add(x, y) => {
+                let (result, overflow) =
+                    self.regs[x as usize].overflowing_add(self.regs[y as usize]);
+                self.regs[x as usize] = result;
+                self.regs[0xF] = overflow as u8;
+                Ok(())
+            }
+            Opcode::SubY(x, y) => {
+                let (result, underflow) =
+                    self.regs[x as usize].overflowing_sub(self.regs[y as usize]);
+                self.regs[x as usize] = result;
+                self.regs[0xF] = underflow as u8;
+                Ok(())
+            }
+            Opcode::ShiftRight(x) => {
+                self.regs[0xF] = self.regs[x as usize] & 0x1;
+                self.regs[x as usize] = self.regs[x as usize] >> 1;
+                Ok(())
+            }
+            Opcode::SubX(x, y) => {
+                let (result, underflow) =
+                    self.regs[y as usize].overflowing_sub(self.regs[x as usize]);
+                self.regs[x as usize] = result;
+                self.regs[0xF] = underflow as u8;
+                Ok(())
+            }
+            Opcode::ShiftLeft(x) => {
+                self.regs[0xF] = self.regs[x as usize] & (0x1 << 7);
+                self.regs[x as usize] = self.regs[x as usize] << 1;
+                Ok(())
+            }
+            Opcode::SkipNotEqual(x, y) => {
+                if self.regs[x as usize] != self.regs[y as usize] {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
             Opcode::SetI(addr) => {
                 self.i = addr;
                 Ok(())
@@ -264,36 +344,13 @@ impl Chip8 {
                 let vx = self.regs[x as usize] as usize % DISPLAY_WIDTH;
                 let vy = self.regs[y as usize] as usize % DISPLAY_HEIGHT;
 
-                self.regs[0xF] = 0;
+                self.display(vx, vy, n);
 
-                for byte_index in 0..n as usize {
-                    let byte = self.memory[self.i as usize + byte_index];
-                    for bit_index in (0..8).rev() {
-                        let bit = (byte >> bit_index) & 1;
-                        let screen_x = (vx + (7 - bit_index)) % DISPLAY_WIDTH;
-                        let screen_y = (vy + byte_index) % DISPLAY_HEIGHT;
-                        let screen_offset = screen_y * DISPLAY_WIDTH + screen_x;
-
-                        if bit == 1 && self.display[screen_offset] == 1 {
-                            self.regs[0xF] = 1;
-                        }
-
-                        self.display[screen_offset] ^= bit;
-
-                        if screen_x == DISPLAY_WIDTH - 1 {
-                            break;
-                        }
-                    }
-
-                    if vy + byte_index == DISPLAY_HEIGHT - 1 {
-                        break;
-                    }
-                }
                 self.io.draw(&mut self.display)?;
                 Ok(())
             }
             _ => {
-                println!("Opcode {:?} not implemented yet", opcode);
+                println!("Opcode {:?} not implemented", opcode);
                 Ok(())
             }
         }
@@ -326,6 +383,34 @@ impl Chip8 {
     fn stack_pop(&mut self) -> Result<u16, Chip8Error> {
         self.stack.pop().ok_or(Chip8Error::StackUnderflow)
     }
+
+    fn display(&mut self, vx: usize, vy: usize, n: u8) {
+        self.regs[0xF] = 0;
+
+        for byte_index in 0..n as usize {
+            let byte = self.memory[self.i as usize + byte_index];
+            for bit_index in (0..8).rev() {
+                let bit = (byte >> bit_index) & 1;
+                let screen_x = (vx + (7 - bit_index)) % DISPLAY_WIDTH;
+                let screen_y = (vy + byte_index) % DISPLAY_HEIGHT;
+                let screen_offset = screen_y * DISPLAY_WIDTH + screen_x;
+
+                if bit == 1 && self.display[screen_offset] == 1 {
+                    self.regs[0xF] = 1;
+                }
+
+                self.display[screen_offset] ^= bit;
+
+                if screen_x == DISPLAY_WIDTH - 1 {
+                    break;
+                }
+            }
+
+            if vy + byte_index == DISPLAY_HEIGHT - 1 {
+                break;
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -344,9 +429,9 @@ enum Opcode {
     And(u8, u8),             // 8XY2
     Xor(u8, u8),             // 8XY3
     Add(u8, u8),             // 8XY4
-    Sub(u8, u8),             // 8XY5
+    SubY(u8, u8),            // 8XY5
     ShiftRight(u8),          // 8XY6
-    SubN(u8, u8),            // 8XY7
+    SubX(u8, u8),            // 8XY7
     ShiftLeft(u8),           // 8XYE
     SkipNotEqual(u8, u8),    // 9XY0
     SetI(u16),               // ANNN
