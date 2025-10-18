@@ -1,5 +1,6 @@
 use std::fs;
 use std::thread;
+use rand::Rng;
 
 use crate::error::Chip8Error;
 use crate::io;
@@ -340,6 +341,16 @@ impl Chip8 {
                 self.i = addr;
                 Ok(())
             }
+            Opcode::JumpV0(nnn) => {
+                self.pc = (self.regs[0x0] + (nnn as u8)) as u16;
+                Ok(())
+            }
+            Opcode::Random(x, nn) => {
+                let mut rng = rand::rng();
+                let random_number: u8 = rng.random();
+                self.regs[x as usize] = random_number & nn;
+                Ok(())
+            }
             Opcode::Draw(x, y, n) => {
                 let vx = self.regs[x as usize] as usize % DISPLAY_WIDTH;
                 let vy = self.regs[y as usize] as usize % DISPLAY_HEIGHT;
@@ -347,6 +358,29 @@ impl Chip8 {
                 self.display(vx, vy, n);
 
                 self.io.draw(&mut self.display)?;
+                Ok(())
+            }
+            // TODO: refactor SkipKey and SkipNotKey
+            Opcode::SkipKey(x) => {
+                if x > 0xF {
+                    return Err(Chip8Error::StackUnderflow);
+                }
+                let result = self.io.check_key_pressed(self.regs[x as usize]);
+
+                if result == true {
+                    self.pc += 2;
+                }
+                Ok(())
+            }
+            Opcode::SkipNotKey(x) => {
+                if x > 0xF {
+                    return Err(Chip8Error::StackOverflow);
+                }
+                let result = self.io.check_key_pressed(self.regs[x as usize]);
+
+                if result == false {
+                    self.pc += 2;
+                }
                 Ok(())
             }
             _ => {
