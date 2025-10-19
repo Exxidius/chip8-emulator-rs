@@ -383,6 +383,33 @@ impl Chip8 {
                 }
                 Ok(())
             }
+            Opcode::GetDelay(x) => {
+                self.regs[x as usize] = self.delay_timer;
+                Ok(())
+            }
+            Opcode::WaitKey(x) => {
+                let result = self.io.get_key_pressed();
+                if result == NO_KEY_PRESSED {
+                    self.pc -= 2;
+                }
+                else {
+                    self.regs[x as usize] = result as u8;
+                }
+                Ok(())
+            }
+            Opcode::SetDelay(x) => {
+                self.delay_timer = self.regs[x as usize];
+                Ok(())
+            }
+            Opcode::SetSound(x) => {
+                self.sound_timer = self.regs[x as usize];
+                Ok(())
+            }
+            Opcode::AddI(x) => {
+                self.i += self.regs[x as usize] as u16;
+                Ok(())
+            }
+
             _ => {
                 println!("Opcode {:?} not implemented", opcode);
                 Ok(())
