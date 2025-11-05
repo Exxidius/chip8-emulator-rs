@@ -422,7 +422,7 @@ impl Chip8 {
             }
             Opcode::StoreRegs(x) => {
                 if x > 0xF {
-                    return Err(Chip8Error::RegisterOutOfRange);
+                    return Err(Chip8Error::RegisterOutOfRange(x));
                 }
                 for i in 0..x {
                     self.memory[(self.i + i as u16) as usize] = self.regs[i as usize];
@@ -431,7 +431,7 @@ impl Chip8 {
             }
             Opcode::LoadRegs(x) => {
                 if x > 0xF {
-                    return Err(Chip8Error::RegisterOutOfRange);
+                    return Err(Chip8Error::RegisterOutOfRange(x));
                 }
                 for i in 0..x {
                     self.regs[i as usize] = self.memory[(self.i + i as u16) as usize];

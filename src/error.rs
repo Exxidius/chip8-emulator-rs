@@ -3,11 +3,10 @@ use sdl3::video::WindowBuildError;
 #[derive(Debug)]
 pub enum Chip8Error {
     RomTooLarge(usize),
-    RomNotFound(String),
     InvalidOpcode(u16),
     StackOverflow,
     StackUnderflow,
-    RegisterOutOfRange,
+    RegisterOutOfRange(u8),
     PCOutOfBounds(u16),
     IoError(std::io::Error),
 }
@@ -41,7 +40,9 @@ impl std::fmt::Display for Chip8Error {
             Chip8Error::PCOutOfBounds(pc) => {
                 write!(f, "Program Counter is out of bounds (PC: {:#X})", pc)
             }
-            Chip8Error::RomNotFound(name) => write!(f, "ROM file not found: {}", name),
+            Chip8Error::RegisterOutOfRange(reg) => {
+                write!(f, "Register index out of range (index: {:#X})", reg)
+            }
             Chip8Error::InvalidOpcode(opcode) => write!(f, "Invalid opcode: {:#X}", opcode),
             Chip8Error::StackOverflow => write!(f, "Stack overflow"),
             Chip8Error::StackUnderflow => write!(f, "Stack underflow"),
