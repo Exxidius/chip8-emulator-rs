@@ -409,7 +409,11 @@ impl Chip8 {
                 self.i += self.regs[x as usize] as u16;
                 Ok(())
             }
-
+            Opcode::SetSprite(x) => {
+                let value = (self.regs[(x as usize) & 0xF] * 5) as u16;
+                self.i = MEMORY_SIZE as u16 + value;
+                Ok(())
+            }
             _ => {
                 println!("Opcode {:?} not implemented", opcode);
                 Ok(())
