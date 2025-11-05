@@ -7,6 +7,7 @@ pub enum Chip8Error {
     InvalidOpcode(u16),
     StackOverflow,
     StackUnderflow,
+    RegisterOutOfRange,
     PCOutOfBounds(u16),
     IoError(std::io::Error),
 }

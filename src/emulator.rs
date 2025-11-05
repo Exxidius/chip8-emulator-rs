@@ -414,8 +414,28 @@ impl Chip8 {
                 self.i = MEMORY_SIZE as u16 + value;
                 Ok(())
             }
-            _ => {
-                println!("Opcode {:?} not implemented", opcode);
+            Opcode::StoreBCD(x) => {
+                self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
+                self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
+                self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
+                Ok(())
+            }
+            Opcode::StoreRegs(x) => {
+                if x > 0xF {
+                    return Err(Chip8Error::RegisterOutOfRange);
+                }
+                for i in 0..x {
+                    self.memory[(self.i + i as u16) as usize] = self.regs[i as usize];
+                }
+                Ok(())
+            }
+            Opcode::LoadRegs(x) => {
+                if x > 0xF {
+                    return Err(Chip8Error::RegisterOutOfRange);
+                }
+                for i in 0..x {
+                    self.regs[i as usize] = self.memory[(self.i + i as u16) as usize];
+                }
                 Ok(())
             }
         }
@@ -515,3 +535,5 @@ enum Opcode {
     StoreRegs(u8),           // FX55
     LoadRegs(u8),            // FX65
 }
+
+// TODO: implement tests for emulator.rs
