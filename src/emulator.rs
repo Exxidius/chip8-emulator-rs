@@ -64,7 +64,7 @@ pub struct Chip8 {
     should_step: bool,
     debug_mode: bool,
 
-    io: io::IO,
+    io: Option<io::IO>,
 }
 
 impl Chip8 {
@@ -94,7 +94,7 @@ impl Chip8 {
             i: 0x0,
             acc: 0,
             current_instruction: 0x0000,
-            io: io::IO::new(DISPLAY_WIDTH, DISPLAY_HEIGHT)?,
+            io: Some(io::IO::new(DISPLAY_WIDTH, DISPLAY_HEIGHT)?),
         })
     }
 
@@ -121,37 +121,42 @@ impl Chip8 {
                 self.should_step = false;
             }
 
-            let result = self.io.poll()?;
+            if let Some(io) = &mut self.io {
+                let result = io.poll()?;
 
-            if result == QUIT {
-                self.running = false;
-                continue;
-            }
+                if result == QUIT {
+                    self.running = false;
+                    continue;
+                }
 
-            if result & PAUSE != 0 && self.debug_mode {
-                self.paused = !self.paused;
-                self.draw()?;
-            }
+                if result & PAUSE != 0 && self.debug_mode {
+                    self.paused = !self.paused;
+                    self.draw()?;
+                }
 
-            if result & STEP_MODE != 0 && self.debug_mode {
-                self.step_mode = !self.step_mode;
-                self.draw()?;
-            }
+                if result & STEP_MODE != 0 && self.debug_mode {
+                    self.step_mode = !self.step_mode;
+                    self.draw()?;
+                }
 
-            if result & SHOULD_STEP != 0 {
-                self.should_step = true;
-            }
+                if result & SHOULD_STEP != 0 {
+                    self.should_step = true;
+                }
 
-            if result & RESET != 0 {
-                self.reset()?;
+                if result & RESET != 0 {
+                    self.reset()?;
+                }
             }
         }
         Ok(())
     }
 
     fn draw(&mut self) -> Result<(), Chip8Error> {
-        println!("Drawing display");
-        self.io.draw(&mut self.display)
+        if let Some(io) = &mut self.io {
+            println!("Drawing display");
+            io.draw(&mut self.display)?;
+        }
+        Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Chip8Error> {
@@ -240,7 +245,9 @@ impl Chip8 {
         match opcode {
             Opcode::Clear => {
                 self.display = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-                self.io.draw(&mut self.display)?;
+                if let Some(io) = &mut self.io {
+                    io.draw(&mut self.display)?;
+                }
                 Ok(())
             }
             Opcode::Return => {
@@ -357,7 +364,9 @@ impl Chip8 {
 
                 self.display(vx, vy, n);
 
-                self.io.draw(&mut self.display)?;
+                if let Some(io) = &mut self.io {
+                    io.draw(&mut self.display)?;
+                }
                 Ok(())
             }
             // TODO: refactor SkipKey and SkipNotKey
@@ -365,10 +374,12 @@ impl Chip8 {
                 if x > 0xF {
                     return Err(Chip8Error::StackUnderflow);
                 }
-                let result = self.io.check_key_pressed(self.regs[x as usize]);
+                if let Some(io) = &mut self.io {
+                    let result = io.check_key_pressed(self.regs[x as usize]);
 
-                if result == true {
-                    self.pc += 2;
+                    if result == true {
+                        self.pc += 2;
+                    }
                 }
                 Ok(())
             }
@@ -376,10 +387,12 @@ impl Chip8 {
                 if x > 0xF {
                     return Err(Chip8Error::StackOverflow);
                 }
-                let result = self.io.check_key_pressed(self.regs[x as usize]);
+                if let Some(io) = &mut self.io {
+                    let result = io.check_key_pressed(self.regs[x as usize]);
 
-                if result == false {
-                    self.pc += 2;
+                    if result == false {
+                        self.pc += 2;
+                    }
                 }
                 Ok(())
             }
@@ -388,12 +401,14 @@ impl Chip8 {
                 Ok(())
             }
             Opcode::WaitKey(x) => {
-                let result = self.io.get_key_pressed();
-                if result == NO_KEY_PRESSED {
-                    self.pc -= 2;
-                }
-                else {
-                    self.regs[x as usize] = result as u8;
+                if let Some(io) = &mut self.io {
+                    let result = io.get_key_pressed();
+                    if result == NO_KEY_PRESSED {
+                        self.pc -= 2;
+                    }
+                    else {
+                        self.regs[x as usize] = result as u8;
+                    }
                 }
                 Ok(())
             }
@@ -415,29 +430,35 @@ impl Chip8 {
                 Ok(())
             }
             Opcode::StoreBCD(x) => {
-                self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
-                self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
-                self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
+                self.store_bcd(x);
                 Ok(())
             }
             Opcode::StoreRegs(x) => {
-                if x > 0xF {
-                    return Err(Chip8Error::RegisterOutOfRange(x));
-                }
-                for i in 0..x {
-                    self.memory[(self.i + i as u16) as usize] = self.regs[i as usize];
-                }
+                self.store_regs(x as u16);
                 Ok(())
             }
             Opcode::LoadRegs(x) => {
-                if x > 0xF {
-                    return Err(Chip8Error::RegisterOutOfRange(x));
-                }
-                for i in 0..x {
-                    self.regs[i as usize] = self.memory[(self.i + i as u16) as usize];
-                }
+                self.load_regs(x as u16);
                 Ok(())
             }
+        }
+    }
+
+    fn store_bcd(&mut self, x: u8) {
+        self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
+        self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
+        self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
+    }
+
+    fn store_regs(&mut self, x: u16) {
+        for i in 0u16..=x {
+            self.memory[(self.i + i) as usize] = self.regs[i as usize];
+        }
+    }
+
+    fn load_regs(&mut self, x: u16) {
+        for i in 0u16..=x {
+            self.regs[i as usize] = self.memory[(self.i + i) as usize];
         }
     }
 
@@ -537,3 +558,142 @@ enum Opcode {
 }
 
 // TODO: implement tests for emulator.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn new_headless_chip8() -> Chip8 {
+        let mut memory = [0; MEMORY_SIZE];
+        memory[FONT_OFFSET..FONT_OFFSET + FONT.len()].copy_from_slice(&FONT);
+
+        Chip8 {
+            display: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+            memory,
+            regs: [0; NUMBER_REGS],
+            stack: Vec::with_capacity(STACK_SIZE),
+            delay_timer: 0,
+            sound_timer: 0,
+            running: true,
+            debug_mode: false,
+            paused: false,
+            step_mode: false,
+            should_step: false,
+            pc: PROGRAM_START as u16,
+            i: 0x0,
+            acc: 0,
+            current_instruction: 0x0000,
+            io: None,
+        }
+    }
+
+    #[test]
+    fn test_opcode_clear() {
+        let mut chip8 = new_headless_chip8();
+        chip8.display = [1; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+        chip8.current_instruction = 0x00E0;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.display, [0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+    }
+    
+    #[test]
+    fn test_opcode_jump() {
+        let mut chip8 = new_headless_chip8();
+        chip8.current_instruction = 0x1234;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.pc, 0x234);
+    }
+
+    #[test]
+    fn test_opcode_store_bcd() {
+        let mut chip8 = new_headless_chip8();
+        chip8.i = 0x300;
+        chip8.regs[6] = 137;
+        chip8.current_instruction = 0xF633;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.memory[0x300], 1);
+        assert_eq!(chip8.memory[0x301], 3);
+        assert_eq!(chip8.memory[0x302], 7);
+
+        chip8.regs[6] = 65;
+        chip8.current_instruction = 0xF633;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.memory[0x300], 0);
+        assert_eq!(chip8.memory[0x301], 6);
+        assert_eq!(chip8.memory[0x302], 5);
+
+        chip8.regs[6] = 4;
+        chip8.current_instruction = 0xF633;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.memory[0x300], 0);
+        assert_eq!(chip8.memory[0x301], 0);
+        assert_eq!(chip8.memory[0x302], 4);
+    }
+
+    #[test]
+    fn test_opcode_store_regs_detailed() {
+        let mut chip8 = new_headless_chip8();
+        
+        chip8.regs[0] = 0;
+        chip8.regs[1] = 48;
+        
+        let scratchpad = 0x300;
+        chip8.i = scratchpad;
+        
+        chip8.current_instruction = 0xF155;
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.memory[scratchpad as usize], 0, "Memory[I] should be 0");
+        assert_eq!(chip8.memory[(scratchpad + 1) as usize], 48, "Memory[I+1] should be 48");
+        
+        chip8.regs[0] = 0xFF;
+        chip8.regs[1] = 0xFF;
+        
+        chip8.i = scratchpad;
+        chip8.current_instruction = 0xF065;
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        let v1_temp = chip8.regs[0];
+        
+        chip8.i = scratchpad + 1;
+        chip8.current_instruction = 0xF065;
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+        
+        assert_eq!(chip8.regs[0], 48, "v0 should be 48 after loading from scratchpad+1");
+        assert_eq!(v1_temp, 0, "v1_temp should be 0 after loading from scratchpad");
+    }
+
+     #[test]
+    fn test_opcode_load_regs() {
+        let mut chip8 = new_headless_chip8();
+        chip8.i = 0x300;
+        for i in 0..=5 {
+            chip8.memory[0x300 + i] = i as u8 * 10;
+        }
+        chip8.current_instruction = 0xF565;
+        
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+
+        for i in 0..=5 {
+            assert_eq!(chip8.regs[i], i as u8 * 10);
+        }
+    }
+}

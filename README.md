@@ -1,6 +1,6 @@
 # Chip8 Emulator (Rust Version)
 
-A Chip8 emulator (re)written in rust to practice rust.
+A Chip8 emulator (re)written in rust to learn/practice rust.
 
 ## Resources (Thanks to the authors for providing these!)
    + [Tobias V. Langhoff's high level Chip8 guide](https://tobiasvl.github.io/blog/write-a-chip-8-emulator)
