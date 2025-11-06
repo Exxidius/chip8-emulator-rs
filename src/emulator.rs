@@ -557,7 +557,6 @@ enum Opcode {
     LoadRegs(u8),            // FX65
 }
 
-// TODO: implement tests for emulator.rs
 #[cfg(test)]
 mod tests {
     use super::*;
