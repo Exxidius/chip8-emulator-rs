@@ -286,9 +286,7 @@ impl Chip8 {
                 Ok(())
             }
             Opcode::AddVal(x, nn) => {
-                let (result, overflow) = self.regs[x as usize].overflowing_add(nn);
-                self.regs[x as usize] = result;
-                self.regs[0xF] = overflow as u8;
+                self.regs[x as usize] = self.regs[x as usize].wrapping_add(nn);
                 Ok(())
             }
             Opcode::Set(x, y) => {
@@ -318,24 +316,26 @@ impl Chip8 {
                 let (result, underflow) =
                     self.regs[x as usize].overflowing_sub(self.regs[y as usize]);
                 self.regs[x as usize] = result;
-                self.regs[0xF] = underflow as u8;
+                self.regs[0xF] = !underflow as u8;
                 Ok(())
             }
             Opcode::ShiftRight(x) => {
-                self.regs[0xF] = self.regs[x as usize] & 0x1;
-                self.regs[x as usize] = self.regs[x as usize] >> 1;
+                let acc = self.regs[x as usize];
+                self.regs[x as usize] >>= 1;
+                self.regs[0xF] = acc & 0x1;
                 Ok(())
             }
             Opcode::SubX(x, y) => {
                 let (result, underflow) =
                     self.regs[y as usize].overflowing_sub(self.regs[x as usize]);
                 self.regs[x as usize] = result;
-                self.regs[0xF] = underflow as u8;
+                self.regs[0xF] = !underflow as u8;
                 Ok(())
             }
             Opcode::ShiftLeft(x) => {
-                self.regs[0xF] = self.regs[x as usize] & (0x1 << 7);
-                self.regs[x as usize] = self.regs[x as usize] << 1;
+                let acc = self.regs[x as usize];
+                self.regs[x as usize] <<= 1;
+                self.regs[0xF] = (acc >> 7) & 0x1;
                 Ok(())
             }
             Opcode::SkipNotEqual(x, y) => {
@@ -586,25 +586,68 @@ mod tests {
     }
 
     #[test]
+    fn test_opcode_add() {
+        let mut chip8 = new_headless_chip8();
+        chip8.regs[0xF] = 200;
+        chip8.current_instruction = 0x7F64;
+
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+
+        // no overflow in this instruction
+        assert_eq!(chip8.regs[0xF], 44);
+
+        chip8.regs[0] = 20;
+        chip8.current_instruction = 0x7064;
+
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+
+        assert_eq!(chip8.regs[0], 120);
+    }
+
+    #[test]
+    fn test_opcode_sub_y() {
+        let mut chip8 = new_headless_chip8();
+        chip8.regs[0xF] = 10;
+        chip8.current_instruction = 0x8FF7;
+
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+
+        assert_eq!(chip8.regs[0xF], 1);
+
+        chip8.regs[0x1] = 10;
+        chip8.regs[0x2] = 15;
+        chip8.current_instruction = 0x8125;
+
+        let opcode = chip8.decode().unwrap();
+        chip8.execute(opcode).unwrap();
+
+        assert_eq!(chip8.regs[1], 251);
+        assert_eq!(chip8.regs[0xF], 0);
+    }
+
+    #[test]
     fn test_opcode_clear() {
         let mut chip8 = new_headless_chip8();
         chip8.display = [1; DISPLAY_WIDTH * DISPLAY_HEIGHT];
         chip8.current_instruction = 0x00E0;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.display, [0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
     }
-    
+
     #[test]
     fn test_opcode_jump() {
         let mut chip8 = new_headless_chip8();
         chip8.current_instruction = 0x1234;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.pc, 0x234);
     }
 
@@ -614,30 +657,30 @@ mod tests {
         chip8.i = 0x300;
         chip8.regs[6] = 137;
         chip8.current_instruction = 0xF633;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.memory[0x300], 1);
         assert_eq!(chip8.memory[0x301], 3);
         assert_eq!(chip8.memory[0x302], 7);
 
         chip8.regs[6] = 65;
         chip8.current_instruction = 0xF633;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.memory[0x300], 0);
         assert_eq!(chip8.memory[0x301], 6);
         assert_eq!(chip8.memory[0x302], 5);
 
         chip8.regs[6] = 4;
         chip8.current_instruction = 0xF633;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.memory[0x300], 0);
         assert_eq!(chip8.memory[0x301], 0);
         assert_eq!(chip8.memory[0x302], 4);
@@ -646,35 +689,35 @@ mod tests {
     #[test]
     fn test_opcode_store_regs_detailed() {
         let mut chip8 = new_headless_chip8();
-        
+
         chip8.regs[0] = 0;
         chip8.regs[1] = 48;
-        
+
         let scratchpad = 0x300;
         chip8.i = scratchpad;
-        
+
         chip8.current_instruction = 0xF155;
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.memory[scratchpad as usize], 0, "Memory[I] should be 0");
         assert_eq!(chip8.memory[(scratchpad + 1) as usize], 48, "Memory[I+1] should be 48");
-        
+
         chip8.regs[0] = 0xFF;
         chip8.regs[1] = 0xFF;
-        
+
         chip8.i = scratchpad;
         chip8.current_instruction = 0xF065;
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         let v1_temp = chip8.regs[0];
-        
+
         chip8.i = scratchpad + 1;
         chip8.current_instruction = 0xF065;
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
-        
+
         assert_eq!(chip8.regs[0], 48, "v0 should be 48 after loading from scratchpad+1");
         assert_eq!(v1_temp, 0, "v1_temp should be 0 after loading from scratchpad");
     }
@@ -687,7 +730,7 @@ mod tests {
             chip8.memory[0x300 + i] = i as u8 * 10;
         }
         chip8.current_instruction = 0xF565;
-        
+
         let opcode = chip8.decode().unwrap();
         chip8.execute(opcode).unwrap();
 
