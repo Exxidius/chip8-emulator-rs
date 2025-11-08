@@ -35,6 +35,13 @@ const KEY_TO_POSITION: [u8; 16] = [
     0xD, 0x0, 0x1, 0x2, 0x4, 0x5, 0x6, 0x8, 0x9, 0xA, 0xC, 0xE, 0x3, 0x7, 0xB, 0xF,
 ];
 
+pub const PAUSE: u32 = 0x02;
+pub const STEP_MODE: u32 = 0x04;
+pub const SHOULD_STEP: u32 = 0x08;
+pub const RESET: u32 = 0x10;
+pub const QUIT: u32 = 0x20;
+pub const NO_KEY_PRESSED: i32 = -2;
+
 pub struct IO {
     context: sdl3::Sdl,
     canvas: sdl3::render::Canvas<sdl3::video::Window>,
@@ -88,24 +95,24 @@ impl IO {
                     scancode: Some(Scancode::Escape),
                     ..
                 } => {
-                    return Ok(crate::emulator::QUIT);
+                    return Ok(QUIT);
                 }
                 Event::KeyDown {
                     scancode: Some(Scancode::P),
                     ..
-                } => status |= crate::emulator::PAUSE,
+                } => status |= PAUSE,
                 Event::KeyDown {
                     scancode: Some(Scancode::M),
                     ..
-                } => status |= crate::emulator::STEP_MODE,
+                } => status |= STEP_MODE,
                 Event::KeyDown {
                     scancode: Some(Scancode::N),
                     ..
-                } => status |= crate::emulator::SHOULD_STEP,
+                } => status |= SHOULD_STEP,
                 Event::KeyDown {
                     scancode: Some(Scancode::_0),
                     ..
-                } => status |= crate::emulator::RESET,
+                } => status |= RESET,
                 Event::KeyDown {
                     scancode: Some(code),
                     ..
@@ -154,7 +161,7 @@ impl IO {
             }
         }
 
-        crate::emulator::NO_KEY_PRESSED
+        NO_KEY_PRESSED
     }
 
     pub fn draw(&mut self, pixels: &[u8]) -> Result<(), Chip8Error> {
