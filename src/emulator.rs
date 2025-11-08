@@ -18,6 +18,7 @@ const MEMORY_SIZE: usize = 4096;
 const FONT_OFFSET: usize = 0x050;
 const PROGRAM_START: usize = 0x200;
 const INSTRUCTION_FREQ: u64 = 1000;
+const TIMER_FREQ: u64 = 60;
 
 pub const PAUSE: u32 = 0x02;
 pub const STEP_MODE: u32 = 0x04;
@@ -57,6 +58,7 @@ pub struct Chip8 {
 
     delay_timer: u8,
     sound_timer: u8,
+    last_timer_update: std::time::Instant,
 
     running: bool,
     paused: bool,
@@ -85,6 +87,7 @@ impl Chip8 {
             stack: Vec::with_capacity(STACK_SIZE),
             delay_timer: 0,
             sound_timer: 0,
+            last_timer_update: std::time::Instant::now(),
             running: true,
             debug_mode: debug,
             paused: debug,
@@ -475,7 +478,13 @@ impl Chip8 {
 
     fn timer_60_hz(&mut self) -> bool {
         let now = std::time::Instant::now();
-        now.elapsed().as_millis() % (1000 / 60) == 0
+        let diff = now.duration_since(self.last_timer_update);
+        let update_rate_ms = 1000_f64 / TIMER_FREQ as f64;
+        if diff.as_millis() > update_rate_ms as u128 {
+            self.last_timer_update = now;
+            return true;
+        }
+        false
     }
 
     fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
@@ -572,6 +581,7 @@ mod tests {
             stack: Vec::with_capacity(STACK_SIZE),
             delay_timer: 0,
             sound_timer: 0,
+            last_timer_update: std::time::Instant::now(),
             running: true,
             debug_mode: false,
             paused: false,
