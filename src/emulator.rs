@@ -3,6 +3,7 @@ use std::thread;
 use rand::Rng;
 
 use crate::error::Chip8Error;
+use crate::opcode::Opcode;
 use crate::io;
 
 type Memory = [u8; MEMORY_SIZE];
@@ -111,9 +112,8 @@ impl Chip8 {
                 }
 
                 self.fetch();
+                self.decode_execute()?;
             }
-
-            self.decode_execute()?;
 
             thread::sleep(std::time::Duration::from_secs_f64(
                 1_f64 / INSTRUCTION_FREQ as f64,
@@ -156,7 +156,6 @@ impl Chip8 {
 
     fn draw(&mut self) -> Result<(), Chip8Error> {
         if let Some(io) = &mut self.io {
-            println!("Drawing display");
             io.draw(&mut self.display)?;
         }
         Ok(())
@@ -246,21 +245,9 @@ impl Chip8 {
 
     fn execute(&mut self, opcode: Opcode) -> Result<(), Chip8Error> {
         match opcode {
-            Opcode::Clear => {
-                self.display = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-                if let Some(io) = &mut self.io {
-                    io.draw(&mut self.display)?;
-                }
-                Ok(())
-            }
-            Opcode::Return => {
-                self.pc = self.stack_pop()?;
-                Ok(())
-            }
-            Opcode::Jump(addr) => {
-                self.pc = addr;
-                Ok(())
-            }
+            Opcode::Clear => self.clear(),
+            Opcode::Return => self.stack_pop(),
+            Opcode::Jump(addr) => self.jump(addr),
             Opcode::Call(addr) => {
                 self.stack_push(self.pc)?;
                 self.pc = addr;
@@ -372,49 +359,13 @@ impl Chip8 {
                 }
                 Ok(())
             }
-            // TODO: refactor SkipKey and SkipNotKey
-            Opcode::SkipKey(x) => {
-                if x > 0xF {
-                    return Err(Chip8Error::StackUnderflow);
-                }
-                if let Some(io) = &mut self.io {
-                    let result = io.check_key_pressed(self.regs[x as usize]);
-
-                    if result == true {
-                        self.pc += 2;
-                    }
-                }
-                Ok(())
-            }
-            Opcode::SkipNotKey(x) => {
-                if x > 0xF {
-                    return Err(Chip8Error::StackOverflow);
-                }
-                if let Some(io) = &mut self.io {
-                    let result = io.check_key_pressed(self.regs[x as usize]);
-
-                    if result == false {
-                        self.pc += 2;
-                    }
-                }
-                Ok(())
-            }
+            Opcode::SkipKey(x) => self.handle_key_skip(x, true),
+            Opcode::SkipNotKey(x) => self.handle_key_skip(x, false),
             Opcode::GetDelay(x) => {
                 self.regs[x as usize] = self.delay_timer;
                 Ok(())
             }
-            Opcode::WaitKey(x) => {
-                if let Some(io) = &mut self.io {
-                    let result = io.get_key_pressed();
-                    if result == NO_KEY_PRESSED {
-                        self.pc -= 2;
-                    }
-                    else {
-                        self.regs[x as usize] = result as u8;
-                    }
-                }
-                Ok(())
-            }
+            Opcode::WaitKey(x) => self.wait_key(x),
             Opcode::SetDelay(x) => {
                 self.delay_timer = self.regs[x as usize];
                 Ok(())
@@ -432,36 +383,9 @@ impl Chip8 {
                 self.i = MEMORY_SIZE as u16 + value;
                 Ok(())
             }
-            Opcode::StoreBCD(x) => {
-                self.store_bcd(x);
-                Ok(())
-            }
-            Opcode::StoreRegs(x) => {
-                self.store_regs(x as u16);
-                Ok(())
-            }
-            Opcode::LoadRegs(x) => {
-                self.load_regs(x as u16);
-                Ok(())
-            }
-        }
-    }
-
-    fn store_bcd(&mut self, x: u8) {
-        self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
-        self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
-        self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
-    }
-
-    fn store_regs(&mut self, x: u16) {
-        for i in 0u16..=x {
-            self.memory[(self.i + i) as usize] = self.regs[i as usize];
-        }
-    }
-
-    fn load_regs(&mut self, x: u16) {
-        for i in 0u16..=x {
-            self.regs[i as usize] = self.memory[(self.i + i) as usize];
+            Opcode::StoreBCD(x) => self.store_bcd(x),
+            Opcode::StoreRegs(x) => self.store_regs(x as u16),
+            Opcode::LoadRegs(x) => self.load_regs(x as u16),
         }
     }
 
@@ -485,18 +409,6 @@ impl Chip8 {
             return true;
         }
         false
-    }
-
-    fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
-        if self.stack.len() >= STACK_SIZE {
-            return Err(Chip8Error::StackOverflow);
-        }
-        self.stack.push(value);
-        Ok(())
-    }
-
-    fn stack_pop(&mut self) -> Result<u16, Chip8Error> {
-        self.stack.pop().ok_or(Chip8Error::StackUnderflow)
     }
 
     fn display(&mut self, vx: usize, vy: usize, n: u8) {
@@ -526,44 +438,98 @@ impl Chip8 {
             }
         }
     }
+
+    fn validate_register(&self, x: u8) -> Result<(), Chip8Error> {
+        if x > 0xF {
+            Err(Chip8Error::InvalidOpcode(self.current_instruction))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[inline]
+    fn skip_if(&mut self, condition: bool) {
+        if condition {
+            self.pc += 2;
+        }
+    }
 }
 
-#[derive(Debug)]
-enum Opcode {
-    Clear,                   // 00E0
-    Return,                  // 00EE
-    Jump(u16),               // 1NNN
-    Call(u16),               // 2NNN
-    SkipEqualVal(u8, u8),    // 3XNN
-    SkipNotEqualVal(u8, u8), // 4XNN
-    SkipEqual(u8, u8),       // 5XY0
-    SetVal(u8, u8),          // 6XNN
-    AddVal(u8, u8),          // 7XNN
-    Set(u8, u8),             // 8XY0
-    Or(u8, u8),              // 8XY1
-    And(u8, u8),             // 8XY2
-    Xor(u8, u8),             // 8XY3
-    Add(u8, u8),             // 8XY4
-    SubY(u8, u8),            // 8XY5
-    ShiftRight(u8),          // 8XY6
-    SubX(u8, u8),            // 8XY7
-    ShiftLeft(u8),           // 8XYE
-    SkipNotEqual(u8, u8),    // 9XY0
-    SetI(u16),               // ANNN
-    JumpV0(u16),             // BNNN
-    Random(u8, u8),          // CXNN
-    Draw(u8, u8, u8),        // DXYN
-    SkipKey(u8),             // EX9E
-    SkipNotKey(u8),          // EXA1
-    GetDelay(u8),            // FX07
-    WaitKey(u8),             // FX0A
-    SetDelay(u8),            // FX15
-    SetSound(u8),            // FX18
-    AddI(u8),                // FX1E
-    SetSprite(u8),           // FX29
-    StoreBCD(u8),            // FX33
-    StoreRegs(u8),           // FX55
-    LoadRegs(u8),            // FX65
+impl Chip8 {
+    fn clear(&mut self) -> Result<(), Chip8Error> {
+        self.display.fill(0);
+        if let Some(io) = &mut self.io {
+            io.draw(&mut self.display)?;
+        }
+        Ok(())
+    }
+
+    fn stack_push(&mut self, value: u16) -> Result<(), Chip8Error> {
+        if self.stack.len() >= STACK_SIZE {
+            return Err(Chip8Error::StackOverflow);
+        }
+        self.stack.push(value);
+        Ok(())
+    }
+
+    fn stack_pop(&mut self) -> Result<(), Chip8Error> {
+        self.pc = self.stack.pop().ok_or(Chip8Error::StackUnderflow)?;
+        Ok(())
+    }
+
+    fn jump(&mut self, addr: u16) -> Result<(), Chip8Error> {
+        self.pc = addr;
+        Ok(())
+    }
+
+    fn store_bcd(&mut self, x: u8) -> Result<(), Chip8Error> {
+        self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
+        self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
+        self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
+        Ok(())
+    }
+
+    fn store_regs(&mut self, x: u16) -> Result<(), Chip8Error> {
+        self.validate_register(x as u8)?;
+        for i in 0u16..=x {
+            self.memory[(self.i + i) as usize] = self.regs[i as usize];
+        }
+        Ok(())
+    }
+
+    fn load_regs(&mut self, x: u16) -> Result<(), Chip8Error> {
+        self.validate_register(x as u8)?;
+        for i in 0u16..=x {
+            self.regs[i as usize] = self.memory[(self.i + i) as usize];
+        }
+        Ok(())
+    }
+
+    fn wait_key(&mut self, x: u8) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
+        if let Some(io) = &mut self.io {
+            let result = io.get_key_pressed();
+            if result == NO_KEY_PRESSED {
+                self.pc -= 2;
+            }
+            else {
+                self.regs[x as usize] = result as u8;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_key_skip(&mut self, x: u8, should_skip_if_pressed: bool) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
+        if let Some(io) = &mut self.io {
+            let is_pressed = io.check_key_pressed(self.regs[x as usize]);
+            if is_pressed == should_skip_if_pressed {
+                self.pc += 2;
+            }
+        }
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]

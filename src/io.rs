@@ -45,8 +45,6 @@ pub struct IO {
 
     width: u32,
     height: u32,
-    debug_width: u32,
-    debug_height: u32,
 }
 
 impl IO {
@@ -76,8 +74,6 @@ impl IO {
             key_released: -1,
             width: width as u32,
             height: height as u32,
-            debug_width: 0,
-            debug_height: 0,
         })
     }
 

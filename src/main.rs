@@ -3,6 +3,7 @@ use clap::Parser;
 mod emulator;
 mod error;
 mod io;
+mod opcode;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
