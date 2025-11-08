@@ -253,24 +253,9 @@ impl Chip8 {
                 self.pc = addr;
                 Ok(())
             }
-            Opcode::SkipEqualVal(x, nn) => {
-                if self.regs[x as usize] == nn {
-                    self.pc += 2;
-                }
-                Ok(())
-            }
-            Opcode::SkipNotEqualVal(x, nn) => {
-                if self.regs[x as usize] != nn {
-                    self.pc += 2;
-                }
-                Ok(())
-            }
-            Opcode::SkipEqual(x, y) => {
-                if self.regs[x as usize] == self.regs[y as usize] {
-                    self.pc += 2;
-                }
-                Ok(())
-            }
+            Opcode::SkipEqualVal(x, nn) => self.skip_if(self.regs[x as usize] == nn),
+            Opcode::SkipNotEqualVal(x, nn) => self.skip_if(self.regs[x as usize] != nn),
+            Opcode::SkipEqual(x, y) => self.skip_if(self.regs[x as usize] == self.regs[y as usize]),
             Opcode::SetVal(x, nn) => {
                 self.regs[x as usize] = nn;
                 Ok(())
@@ -328,12 +313,7 @@ impl Chip8 {
                 self.regs[0xF] = (acc >> 7) & 0x1;
                 Ok(())
             }
-            Opcode::SkipNotEqual(x, y) => {
-                if self.regs[x as usize] != self.regs[y as usize] {
-                    self.pc += 2;
-                }
-                Ok(())
-            }
+            Opcode::SkipNotEqual(x, y) => self.skip_if(self.regs[x as usize] != self.regs[y as usize]),
             Opcode::SetI(addr) => {
                 self.i = addr;
                 Ok(())
@@ -446,13 +426,6 @@ impl Chip8 {
             Ok(())
         }
     }
-
-    #[inline]
-    fn skip_if(&mut self, condition: bool) {
-        if condition {
-            self.pc += 2;
-        }
-    }
 }
 
 impl Chip8 {
@@ -460,6 +433,13 @@ impl Chip8 {
         self.display.fill(0);
         if let Some(io) = &mut self.io {
             io.draw(&mut self.display)?;
+        }
+        Ok(())
+    }
+
+    fn skip_if(&mut self, condition: bool) -> Result<(), Chip8Error> {
+        if condition {
+            self.pc += 2;
         }
         Ok(())
     }
