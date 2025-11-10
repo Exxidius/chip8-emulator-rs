@@ -2,7 +2,7 @@
 
 A Chip8 emulator (re)written in rust to learn/practice rust.
 
-> **_NOTE:_**  In the rust version there is no debug UI. If the debug flag is passed the 
+> **NOTE:**  In the rust version there is no debug UI. If the debug flag is passed the 
 debug buttons still work. Whenever I find the time I will include the debug UI aswell.
 
 ## Controlling the emulator
