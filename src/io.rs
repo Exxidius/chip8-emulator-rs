@@ -60,11 +60,7 @@ impl IO {
         let video_subsystem = sdl_context.video()?;
 
         let window = video_subsystem
-            .window(
-                "chip8-emulator-rs",
-                width as u32 * SCALING,
-                height as u32 * SCALING,
-            )
+            .window("chip8-emulator-rs", width as u32 * SCALING, height as u32 * SCALING)
             .position_centered()
             .build()?;
 
@@ -114,12 +110,10 @@ impl IO {
                     ..
                 } => status |= RESET,
                 Event::KeyDown {
-                    scancode: Some(code),
-                    ..
+                    scancode: Some(code), ..
                 } => self.set_key(code),
                 Event::KeyUp {
-                    scancode: Some(code),
-                    ..
+                    scancode: Some(code), ..
                 } => self.reset_key(code),
                 _ => {}
             }
@@ -175,12 +169,7 @@ impl IO {
                 let pixel_index = (y * self.width + x) as usize;
 
                 if pixels[pixel_index] != 0 {
-                    let rect = sdl3::rect::Rect::new(
-                        (x * SCALING) as i32,
-                        (y * SCALING) as i32,
-                        SCALING,
-                        SCALING,
-                    );
+                    let rect = sdl3::rect::Rect::new((x * SCALING) as i32, (y * SCALING) as i32, SCALING, SCALING);
                     self.canvas.fill_rect(rect)?;
                 }
             }

@@ -1,10 +1,10 @@
+use rand::Rng;
 use std::fs;
 use std::thread;
-use rand::Rng;
 
 use crate::error::Chip8Error;
-use crate::opcode::Opcode;
 use crate::io;
+use crate::opcode::Opcode;
 
 type Memory = [u8; MEMORY_SIZE];
 type Display = [u8; DISPLAY_WIDTH * DISPLAY_HEIGHT];
@@ -108,9 +108,7 @@ impl Chip8 {
                 self.decode_execute()?;
             }
 
-            thread::sleep(std::time::Duration::from_secs_f64(
-                1_f64 / INSTRUCTION_FREQ as f64,
-            ));
+            thread::sleep(std::time::Duration::from_secs_f64(1_f64 / INSTRUCTION_FREQ as f64));
 
             if self.step_mode && self.should_step {
                 self.draw()?;
@@ -246,56 +244,16 @@ impl Chip8 {
             Opcode::SkipNotEqualVal(x, nn) => self.skip_if(self.regs[x as usize] != nn),
             Opcode::SkipEqual(x, y) => self.skip_if(self.regs[x as usize] == self.regs[y as usize]),
             Opcode::SetVal(x, nn) => set(nn, &mut self.regs[x as usize]),
-            Opcode::AddVal(x, nn) => {
-                self.regs[x as usize] = self.regs[x as usize].wrapping_add(nn);
-                Ok(())
-            }
+            Opcode::AddVal(x, nn) => set_fn(nn, &mut self.regs[x as usize], |a, b| a.wrapping_add(b)),
             Opcode::Set(x, y) => set(self.regs[y as usize], &mut self.regs[x as usize]),
-            Opcode::Or(x, y) => {
-                self.regs[x as usize] |= self.regs[y as usize];
-                Ok(())
-            }
-            Opcode::And(x, y) => {
-                self.regs[x as usize] &= self.regs[y as usize];
-                Ok(())
-            }
-            Opcode::Xor(x, y) => {
-                self.regs[x as usize] ^= self.regs[y as usize];
-                Ok(())
-            }
-            Opcode::Add(x, y) => {
-                let (result, overflow) =
-                    self.regs[x as usize].overflowing_add(self.regs[y as usize]);
-                self.regs[x as usize] = result;
-                self.regs[0xF] = overflow as u8;
-                Ok(())
-            }
-            Opcode::SubY(x, y) => {
-                let (result, underflow) =
-                    self.regs[x as usize].overflowing_sub(self.regs[y as usize]);
-                self.regs[x as usize] = result;
-                self.regs[0xF] = !underflow as u8;
-                Ok(())
-            }
-            Opcode::ShiftRight(x) => {
-                let acc = self.regs[x as usize];
-                self.regs[x as usize] >>= 1;
-                self.regs[0xF] = acc & 0x1;
-                Ok(())
-            }
-            Opcode::SubX(x, y) => {
-                let (result, underflow) =
-                    self.regs[y as usize].overflowing_sub(self.regs[x as usize]);
-                self.regs[x as usize] = result;
-                self.regs[0xF] = !underflow as u8;
-                Ok(())
-            }
-            Opcode::ShiftLeft(x) => {
-                let acc = self.regs[x as usize];
-                self.regs[x as usize] <<= 1;
-                self.regs[0xF] = (acc >> 7) & 0x1;
-                Ok(())
-            }
+            Opcode::Or(x, y) => set_fn(self.regs[y as usize], &mut self.regs[x as usize], |a, b| a | b),
+            Opcode::And(x, y) => set_fn(self.regs[y as usize], &mut self.regs[x as usize], |a, b| a & b),
+            Opcode::Xor(x, y) => set_fn(self.regs[y as usize], &mut self.regs[x as usize], |a, b| a ^ b),
+            Opcode::Add(x, y) => self.add(x, y),
+            Opcode::SubY(x, y) => self.sub(x, x, y),
+            Opcode::ShiftRight(x) => self.shift(x, ShiftOp::Right),
+            Opcode::SubX(x, y) => self.sub(x, y, x),
+            Opcode::ShiftLeft(x) => self.shift(x, ShiftOp::Left),
             Opcode::SkipNotEqual(x, y) => self.skip_if(self.regs[x as usize] != self.regs[y as usize]),
             Opcode::SetI(addr) => set(addr, &mut self.i),
             Opcode::JumpV0(nnn) => self.jump_rel(nnn),
@@ -307,10 +265,7 @@ impl Chip8 {
             Opcode::WaitKey(x) => self.wait_key(x),
             Opcode::SetDelay(x) => set(x, &mut self.delay_timer),
             Opcode::SetSound(x) => set(x, &mut self.sound_timer),
-            Opcode::AddI(x) => {
-                self.i += self.regs[x as usize] as u16;
-                Ok(())
-            }
+            Opcode::AddI(x) => set_fn(self.regs[x as usize] as u16, &mut self.i, |a, b| a + b),
             Opcode::SetSprite(x) => self.set_sprite(x),
             Opcode::StoreBCD(x) => self.store_bcd(x),
             Opcode::StoreRegs(x) => self.store_regs(x as u16),
@@ -319,25 +274,28 @@ impl Chip8 {
     }
 
     fn handle_timer(&mut self) {
-        if self.timer_60_hz() {
+        let ticks = self.timer_60_hz();
+        if ticks > 0 {
             if self.delay_timer > 0 {
-                self.delay_timer -= 1;
+                self.delay_timer -= ticks.min(self.delay_timer as u32) as u8;
             }
             if self.sound_timer > 0 {
-                self.sound_timer -= 1;
+                self.sound_timer -= ticks.min(self.sound_timer as u32) as u8;
             }
         }
     }
 
-    fn timer_60_hz(&mut self) -> bool {
-        let now = std::time::Instant::now();
-        let diff = now.duration_since(self.last_timer_update);
-        let update_rate_ms = 1000_f64 / TIMER_FREQ as f64;
-        if diff.as_millis() > update_rate_ms as u128 {
-            self.last_timer_update = now;
-            return true;
+    fn timer_60_hz(&mut self) -> u32 {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let interval = Duration::from_secs_f64(1.0 / TIMER_FREQ as f64);
+
+        let mut ticks = 0u32;
+        while now.duration_since(self.last_timer_update) >= interval {
+            self.last_timer_update += interval;
+            ticks = ticks.saturating_add(1);
         }
-        false
+        ticks
     }
 
     fn display(&mut self, vx: usize, vy: usize, n: u8) {
@@ -370,7 +328,7 @@ impl Chip8 {
 
     fn validate_register(&self, x: u8) -> Result<(), Chip8Error> {
         if x > 0xF {
-            Err(Chip8Error::InvalidOpcode(self.current_instruction))
+            Err(Chip8Error::InvalidRegister(x))
         } else {
             Ok(())
         }
@@ -380,6 +338,16 @@ impl Chip8 {
 fn set<T>(value: T, loc: &mut T) -> Result<(), Chip8Error> {
     *loc = value;
     Ok(())
+}
+
+fn set_fn<T: Copy>(value: T, loc: &mut T, f: fn(T, T) -> T) -> Result<(), Chip8Error> {
+    *loc = f(*loc, value);
+    Ok(())
+}
+
+enum ShiftOp {
+    Right,
+    Left,
 }
 
 impl Chip8 {
@@ -399,7 +367,7 @@ impl Chip8 {
     }
 
     fn jump_rel(&mut self, nnn: u16) -> Result<(), Chip8Error> {
-        self.pc = (self.regs[0x0] + (nnn as u8)) as u16;
+        self.pc = (self.regs[0x0] as u16) + nnn;
         Ok(())
     }
 
@@ -423,6 +391,7 @@ impl Chip8 {
     }
 
     fn store_bcd(&mut self, x: u8) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
         self.memory[self.i as usize] = (self.regs[x as usize] / 100) % 10;
         self.memory[(self.i + 1) as usize] = (self.regs[x as usize] / 10) % 10;
         self.memory[(self.i + 2) as usize] = self.regs[x as usize] % 10;
@@ -446,6 +415,7 @@ impl Chip8 {
     }
 
     fn random(&mut self, x: u8, nn: u8) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
         let mut rng = rand::rng();
         let random_number: u8 = rng.random();
         self.regs[x as usize] = random_number & nn;
@@ -453,6 +423,8 @@ impl Chip8 {
     }
 
     fn draw_mem(&mut self, x: u8, y: u8, n: u8) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
+        self.validate_register(y)?;
         let vx = self.regs[x as usize] as usize % DISPLAY_WIDTH;
         let vy = self.regs[y as usize] as usize % DISPLAY_HEIGHT;
 
@@ -476,8 +448,7 @@ impl Chip8 {
             let result = io.get_key_pressed();
             if result == crate::io::NO_KEY_PRESSED {
                 self.pc -= 2;
-            }
-            else {
+            } else {
                 self.regs[x as usize] = result as u8;
             }
         }
@@ -495,6 +466,39 @@ impl Chip8 {
         Ok(())
     }
 
+    fn add(&mut self, x: u8, y: u8) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
+        self.validate_register(y)?;
+        let (result, overflow) = self.regs[x as usize].overflowing_add(self.regs[y as usize]);
+        self.regs[x as usize] = result;
+        self.regs[0xF] = overflow as u8;
+        Ok(())
+    }
+
+    fn sub(&mut self, loc: u8, x: u8, y: u8) -> Result<(), Chip8Error> {
+        self.validate_register(loc)?;
+        self.validate_register(x)?;
+        self.validate_register(y)?;
+        let (result, underflow) = self.regs[x as usize].overflowing_sub(self.regs[y as usize]);
+        self.regs[loc as usize] = result;
+        self.regs[0xF] = !underflow as u8;
+        Ok(())
+    }
+
+    fn shift(&mut self, x: u8, direction: ShiftOp) -> Result<(), Chip8Error> {
+        self.validate_register(x)?;
+        let acc = self.regs[x as usize];
+        let op = match direction {
+            ShiftOp::Right => |a: u8, _: u8| a >> 1,
+            ShiftOp::Left => |a: u8, _: u8| a << 1,
+        };
+        self.regs[x as usize] = op(acc, 1);
+        match direction {
+            ShiftOp::Right => self.regs[0xF] = acc & 0x1,
+            ShiftOp::Left => self.regs[0xF] = (acc >> 7) & 0x1,
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -663,7 +667,7 @@ mod tests {
         assert_eq!(v1_temp, 0, "v1_temp should be 0 after loading from scratchpad");
     }
 
-     #[test]
+    #[test]
     fn test_opcode_load_regs() {
         let mut chip8 = new_headless_chip8();
         chip8.i = 0x300;
